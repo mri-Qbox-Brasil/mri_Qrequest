@@ -1,4 +1,4 @@
-# g5-request 🚀
+# mriQ_request 🚀
 
 Pequeno sistema de "requests" (notificações com opção de aceitar/recusar) para FiveM, com UI NUI e utilitários para envio individual ou em grupo.
 
