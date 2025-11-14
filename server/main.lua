@@ -6,6 +6,63 @@ local function ensureQueue(src)
     return playerQueues[src]
 end
 
+local function shallowCopy(t)
+    if type(t) ~= 'table' then return t end
+    local o = {}
+    for k, v in pairs(t) do o[k] = v end
+    return o
+end
+
+local function SendRequestAndWait(targets, requestData, timeoutMs)
+    timeoutMs = timeoutMs or (Config and Config.DefaultTimeout) or 15000
+    if type(targets) ~= 'table' then return {} end
+
+    local groupId = tostring(os.time()) .. tostring(math.random(1000,9999))
+    pendingGroupRequests[groupId] = {
+        results = {},
+        created = GetGameTimer()
+    }
+
+    for _, targetId in ipairs(targets) do
+        if tonumber(targetId) then
+            local rd = shallowCopy(requestData or {})
+            rd.groupId = groupId
+            rd.id = rd.id or (tostring(os.time()) .. tostring(math.random(1000,9999)))
+            rd.timeout = rd.timeout or timeoutMs
+            TriggerEvent('g5-request:server:send', tonumber(targetId), rd)
+        end
+    end
+
+    local waitUntil = GetGameTimer() + timeoutMs
+    while GetGameTimer() < waitUntil do
+        local allReceived = true
+        for _, targetId in ipairs(targets) do
+            if pendingGroupRequests[groupId].results[tonumber(targetId)] == nil then
+                allReceived = false
+                break
+            end
+        end
+        if allReceived then break end
+        Wait(50)
+    end
+
+    local results = {}
+    for _, targetId in ipairs(targets) do
+        local tid = tonumber(targetId)
+        local val = pendingGroupRequests[groupId].results[tid]
+        if val == nil then
+            results[tid] = { answered = false, accepted = false, timedOut = true }
+        else
+            results[tid] = { answered = true, accepted = val, timedOut = false }
+        end
+    end
+
+    pendingGroupRequests[groupId] = nil
+    return results
+end
+
+exports('sendAndWait', SendRequestAndWait)
+
 RegisterNetEvent('g5-request:server:send', function(target, requestData)
     local src = source
     if not target or not requestData then return end
@@ -101,64 +158,6 @@ lib.addCommand('sendtestrequest', {
     TriggerEvent('g5-request:server:send', targetId, requestData)
 end)
 
--- Nova função exportada: envia para vários alvos e espera respostas
-local function shallowCopy(t)
-    if type(t) ~= 'table' then return t end
-    local o = {}
-    for k, v in pairs(t) do o[k] = v end
-    return o
-end
-
-local function SendRequestAndWait(targets, requestData, timeoutMs)
-    timeoutMs = timeoutMs or (Config and Config.DefaultTimeout) or 15000
-    if type(targets) ~= 'table' then return {} end
-
-    local groupId = tostring(os.time()) .. tostring(math.random(1000,9999))
-    pendingGroupRequests[groupId] = {
-        results = {},
-        created = GetGameTimer()
-    }
-
-    for _, targetId in ipairs(targets) do
-        if tonumber(targetId) then
-            local rd = shallowCopy(requestData or {})
-            rd.groupId = groupId
-            rd.id = rd.id or (tostring(os.time()) .. tostring(math.random(1000,9999)))
-            rd.timeout = rd.timeout or timeoutMs
-            TriggerEvent('g5-request:server:send', tonumber(targetId), rd)
-        end
-    end
-
-    local waitUntil = GetGameTimer() + timeoutMs
-    while GetGameTimer() < waitUntil do
-        local allReceived = true
-        for _, targetId in ipairs(targets) do
-            if pendingGroupRequests[groupId].results[tonumber(targetId)] == nil then
-                allReceived = false
-                break
-            end
-        end
-        if allReceived then break end
-        Wait(50)
-    end
-
-    local results = {}
-    for _, targetId in ipairs(targets) do
-        local tid = tonumber(targetId)
-        local val = pendingGroupRequests[groupId].results[tid]
-        if val == nil then
-            results[tid] = { answered = false, accepted = false, timedOut = true }
-        else
-            results[tid] = { answered = true, accepted = val, timedOut = false }
-        end
-    end
-
-    pendingGroupRequests[groupId] = nil
-    return results
-end
-
-exports('sendAndWait', SendRequestAndWait)
-
 lib.addCommand('sendgrouptest', {
     help = 'Envia um request de teste para múltiplos jogadores e aguarda respostas',
     params = {
@@ -198,7 +197,6 @@ lib.addCommand('sendgrouptest', {
         codeColor = '#FFFFFF',
     }
 
-    -- Chama a função local que espera as respostas
     local results = SendRequestAndWait(targets, requestData, requestData.timeout)
 
     print('[g5-request] Resultados do sendgrouptest:')
