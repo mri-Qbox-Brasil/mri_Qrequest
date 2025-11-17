@@ -8,7 +8,7 @@ local acceptKeybind = lib.addKeybind({
         if #requests > 0 then
             local id = requests[1].id
             SendNUIMessage({action = 'flashAccept', id = id})
-            TriggerServerEvent('g5-request:server:answer', id, true)
+            lib.callback('g5-request:answer', false, function(_) end, id, true)
             table.remove(requests, 1)
             SendNUIMessage({action = 'remove', id = id})
         end
@@ -23,7 +23,7 @@ local denyKeybind = lib.addKeybind({
         if #requests > 0 then
             local id = requests[1].id
             SendNUIMessage({action = 'flashDeny', id = id})
-            TriggerServerEvent('g5-request:server:answer', id, false)
+            lib.callback('g5-request:answer', false, function(_) end, id, false)
             table.remove(requests, 1)
             SendNUIMessage({action = 'remove', id = id})
         end
@@ -57,8 +57,9 @@ RegisterNUICallback('g5_request_answer', function(data, cb)
         end
     end
 
-    TriggerServerEvent('g5-request:server:answer', id, accepted)
-    cb({ok = true})
+    lib.callback('g5-request:answer', id, accepted, function(res)
+        cb({ok = true})
+    end)
 end)
 
 RegisterNUICallback('g5_nui_ready', function(_, cb)

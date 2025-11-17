@@ -75,9 +75,8 @@ RegisterNetEvent('g5-request:server:send', function(target, requestData)
     TriggerClientEvent('g5-request:client:add', target, requestData)
 end)
 
-RegisterNetEvent('g5-request:server:answer', function(id, accepted)
-    local src = source
-    if not id then return end
+local function HandleClientAnswer(src, id, accepted)
+    if not id then return false end
 
     local q = ensureQueue(src)
     local foundIndex = nil
@@ -89,12 +88,11 @@ RegisterNetEvent('g5-request:server:answer', function(id, accepted)
     end
 
     if not foundIndex then
-        return
+        return false
     end
 
     local request = table.remove(q, foundIndex)
 
-    -- Registra resposta em pendingGroupRequests se for um request de grupo
     if request and request.groupId and pendingGroupRequests[request.groupId] then
         pendingGroupRequests[request.groupId].results[src] = accepted
     end
@@ -104,6 +102,13 @@ RegisterNetEvent('g5-request:server:answer', function(id, accepted)
     else
         TriggerClientEvent('g5-request:server:denied_notify', request.from, src, request)
     end
+
+    return true
+end
+
+lib.callback.register('g5-request:answer', function(source, id, accepted)
+    local ok = HandleClientAnswer(source, id, accepted)
+    return ok
 end)
 
 AddEventHandler('playerDropped', function()
@@ -154,6 +159,7 @@ lib.addCommand('sendtestrequest', {
         tagColor = '#FF0000',
         progressColor = '#00FF00',
         codeColor = '#FFF',
+        sound = 'mixkit-interface-option-select-2573'
     }
     TriggerEvent('g5-request:server:send', targetId, requestData)
 end)
@@ -195,6 +201,7 @@ lib.addCommand('sendgrouptest', {
         tagColor = '#FFAA00',
         progressColor = '#00FF88',
         codeColor = '#FFFFFF',
+        sound = 'mixkit-doorbell-tone-2864'
     }
 
     local results = SendRequestAndWait(targets, requestData, requestData.timeout)
@@ -208,4 +215,15 @@ lib.addCommand('sendgrouptest', {
             tostring(res.timedOut)
         ))
     end
+end)
+
+lib.callback.register('g5-request:sendAndWait', function(source, targets, requestData, timeoutMs)
+    if type(targets) == 'number' then
+        targets = { targets }
+    end
+    if type(targets) ~= 'table' then
+        return {}
+    end
+    requestData = requestData or {}
+    return SendRequestAndWait(targets, requestData, timeoutMs)
 end)

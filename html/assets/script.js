@@ -28,7 +28,6 @@ function setContainerPosition(pos) {
     position = (pos === 'top-left') ? 'top-left' : 'top-right';
     container.classList.remove('pos-top-left', 'pos-top-right');
     container.classList.add(position === 'top-left' ? 'pos-top-left' : 'pos-top-right');
-    // set inline styles to avoid layout overrides (ensures correct side)
     if (position === 'top-left') {
         container.style.left = '30px';
         container.style.right = 'auto';
@@ -41,6 +40,37 @@ function setContainerPosition(pos) {
 }
 
 setContainerPosition(position);
+
+function _hasExtension(name) {
+    return /\.[a-z0-9]{1,6}$/i.test(name);
+}
+
+function _audioPathFor(name) {
+    if (!name || typeof name !== 'string') return [];
+    const clean = name.trim();
+    if (clean.length === 0) return [];
+    if (_hasExtension(clean)) {
+        return [`assets/sound/${clean}`];
+    }
+    return [`assets/sound/${clean}.ogg`, `assets/sound/${clean}.mp3`, `assets/sound/${clean}.wav`];
+}
+
+function playNotificationSound(name) {
+    if (!name || typeof name !== 'string') return;
+    if (name.trim().toLowerCase() === 'off') return;
+    const candidates = _audioPathFor(name);
+    (async () => {
+        for (const src of candidates) {
+            try {
+                const a = new Audio(src);
+                a.volume = 0.9;
+                await a.play();
+                return;
+            } catch (e) {
+            }
+        }
+    })();
+}
 
 function addRequest(req) {
     const timeout = req.timeout || 8000;
@@ -179,6 +209,14 @@ function addRequest(req) {
     </div>
     `;
     card.innerHTML = html;
+
+    try {
+        if (req.sound) {
+            playNotificationSound(req.sound);
+        }
+    } catch (e) {
+        console.error('g5-request sound error', e);
+    }
 
     container.appendChild(card);
 
