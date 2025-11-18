@@ -30,8 +30,16 @@ local denyKeybind = lib.addKeybind({
     end
 })
 
+local function removeRequest(id)
+    for i, r in ipairs(requests) do
+        if tostring(r.id) == tostring(id) then
+            table.remove(requests, i)
+            break
+        end
+    end
+end
+
 RegisterNetEvent('g5-request:client:add', function(requestData)
-    requestData._receivedAt = GetGameTimer()
     table.insert(requests, requestData)
     SendNUIMessage({
         action = 'init',
@@ -40,6 +48,12 @@ RegisterNetEvent('g5-request:client:add', function(requestData)
         position = Config.Position or 'top-right'
     })
     SendNUIMessage({action = 'add', request = requestData})
+end)
+
+RegisterNetEvent('g5-request:client:remove', function(id)
+    if not id then return end
+    removeRequest(id)
+    SendNUIMessage({ action = 'remove', id = id })
 end)
 
 RegisterNUICallback('g5_request_answer', function(data, cb)

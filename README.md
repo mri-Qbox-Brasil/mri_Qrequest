@@ -67,7 +67,7 @@ local request = {
   extras = {
     { icon = 'info', name = 'Obs', value = 'Detalhes aqui' }
   },
-  timeout = 15000, -- se omitido, envio único cai para 8000ms no servidor
+  timeout = 15000, -- se omitido, envio único cai para 15000ms no servidor
   tagColor = '#FF0000',
   progressColor = '#00FF00',
   codeColor = '#FFFFFF',
@@ -94,7 +94,7 @@ Client (via ox_lib callback):
 -- cliente chama o servidor via callback (exemplo)
 lib.callback('g5-request:sendAndWait', {2,3}, requestData, 20000, function(results)
   for pid, res in pairs(results) do
-    print(pid, res.answered, res.accepted, res.timedOut)
+    print(pid, res.answered, res.accepted, res.timedOut, res.canceled)
   end
 end)
 ```
@@ -103,7 +103,7 @@ Também é possível usar await:
 ```lua
 local results = lib.callback.await('g5-request:sendAndWait', {2,3}, requestData, 20000)
 for pid, res in pairs(results) do
-  print(pid, res.answered, res.accepted, res.timedOut)
+  print(pid, res.answered, res.accepted, res.timedOut, res.canceled)
 end
 ```
 
@@ -112,8 +112,62 @@ Formato do retorno:
   - `answered` (boolean): se o jogador respondeu.
   - `accepted` (boolean): se aceitou.
   - `timedOut` (boolean): se expirou sem resposta.
+  - `canceled` (boolean): se o request foi cancelado.
 
 Internamente o servidor cria um `groupId` para correlacionar respostas e aguarda até `timeoutMs` (ou `Config.DefaultTimeout`) antes de devolver resultados.
+
+## Cancelamento de requests
+
+Você pode cancelar um request individual ou um grupo:
+
+- Evento server (qualquer script/server-side):
+```lua
+-- cancela request específico enviado ao player 2 com id "abcd1234"
+TriggerEvent('g5-request:server:cancel', 2, 'abcd1234')
+
+-- cancela um grupo pelo groupId (ex: "group:16409952001234")
+TriggerEvent('g5-request:server:cancel', 'group:16409952001234')
+```
+
+- Exports (server):
+```lua
+-- cancelamento individual (retorna boolean indicando sucesso)
+local ok = exports['g5-request']:cancelRequest(targetServerId, requestId)
+
+-- cancelamento de grupo (retorna boolean indicando sucesso)
+local ok = exports['g5-request']:cancelGroup(groupId)
+```
+
+- Comando de teste (server, requer `group.admin`):
+```
+/cancelrequest <targetServerId> <requestId>
+```
+Exemplo:
+```text
+/cancelrequest 2 abcd1234
+```
+Esse comando tenta remover um request pendente para o jogador alvo e imprime sucesso/erro no console do servidor.
+
+Quando cancelado:
+- O jogador alvo terá o request removido da UI (se estiver visível). Internamente o servidor envia o evento cliente `g5-request:client:remove` para forçar a remoção local.
+- Se o request pertencer a um envio em grupo (`sendAndWait` / export), o resultado para aquele jogador terá o campo `canceled = true`. O export `sendAndWait` agora pode retornar objetos com:
+  - `answered` (boolean)
+  - `accepted` (boolean)
+  - `timedOut` (boolean)
+  - `canceled` (boolean) -- true quando o request foi cancelado antes de resposta
+- O originador receberá um evento no seu client chamado `g5-request:server:cancelled_notify` com assinatura aproximada:
+```lua
+-- cliente que originou o request recebe:
+-- (targetId, requestData, cancelledBy)
+-- onde 'cancelledBy' é o server id que solicitou o cancelamento (se aplicável)
+RegisterNetEvent('g5-request:server:cancelled_notify', function(targetId, requestData, cancelledBy)
+  -- trate notificação aqui
+end)
+```
+
+Observação adicional sobre comportamento:
+- Cancelar um grupo marca o grupo como cancelado e tenta remover todos os requests relacionados nas filas dos jogadores; os resultados do export `sendAndWait` para esses alvos terão `canceled = true`.
+- Cancelar um request individual remove da fila do jogador e, se o request pertencer a um grupo pendente, marca o resultado daquele jogador como cancelado.
 
 ## Callbacks / Eventos relevantes
 - Evento para envio: `g5-request:server:send` (server-side).

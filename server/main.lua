@@ -20,7 +20,8 @@ local function SendRequestAndWait(targets, requestData, timeoutMs)
     local groupId = tostring(os.time()) .. tostring(math.random(1000,9999))
     pendingGroupRequests[groupId] = {
         results = {},
-        created = GetGameTimer()
+        created = GetGameTimer(),
+        canceled = false
     }
 
     for _, targetId in ipairs(targets) do
@@ -49,11 +50,20 @@ local function SendRequestAndWait(targets, requestData, timeoutMs)
     local results = {}
     for _, targetId in ipairs(targets) do
         local tid = tonumber(targetId)
-        local val = pendingGroupRequests[groupId].results[tid]
-        if val == nil then
-            results[tid] = { answered = false, accepted = false, timedOut = true }
+        local entry = pendingGroupRequests[groupId].results[tid]
+        if entry == nil then
+            if pendingGroupRequests[groupId].canceled then
+                results[tid] = { answered = false, accepted = false, timedOut = false, canceled = true }
+            else
+                results[tid] = { answered = false, accepted = false, timedOut = true, canceled = false }
+            end
         else
-            results[tid] = { answered = true, accepted = val, timedOut = false }
+            results[tid] = {
+                answered = entry.answered == true,
+                accepted = entry.accepted == true,
+                timedOut = entry.timedOut == true,
+                canceled = entry.canceled == true
+            }
         end
     end
 
@@ -68,7 +78,7 @@ RegisterNetEvent('g5-request:server:send', function(target, requestData)
     if not target or not requestData then return end
     requestData.id = requestData.id or (tostring(os.time()) .. tostring(math.random(1000,9999)))
     requestData.from = requestData.from or src
-    requestData.timeout = requestData.timeout or 8000
+    requestData.timeout = requestData.timeout or 15000
 
     local q = ensureQueue(target)
     table.insert(q, requestData)
@@ -94,7 +104,12 @@ local function HandleClientAnswer(src, id, accepted)
     local request = table.remove(q, foundIndex)
 
     if request and request.groupId and pendingGroupRequests[request.groupId] then
-        pendingGroupRequests[request.groupId].results[src] = accepted
+        pendingGroupRequests[request.groupId].results[src] = {
+            answered = true,
+            accepted = accepted == true,
+            timedOut = false,
+            canceled = false
+        }
     end
 
     if accepted then
@@ -114,6 +129,90 @@ end)
 AddEventHandler('playerDropped', function()
     local src = source
     playerQueues[src] = nil
+end)
+
+lib.callback.register('g5-request:sendAndWait', function(source, targets, requestData, timeoutMs)
+    if type(targets) == 'number' then
+        targets = { targets }
+    end
+    if type(targets) ~= 'table' then
+        return {}
+    end
+    requestData = requestData or {}
+    return SendRequestAndWait(targets, requestData, timeoutMs)
+end)
+
+local function CancelRequest(target, id, cancelledBy)
+    if not target or not id then return false end
+    local q = playerQueues[target]
+    local removedRequest = nil
+    if q then
+        for i = #q, 1, -1 do
+            if tostring(q[i].id) == tostring(id) then
+                removedRequest = table.remove(q, i)
+                break
+            end
+        end
+    end
+
+    TriggerClientEvent('g5-request:client:remove', target, id)
+
+    if removedRequest and removedRequest.groupId and pendingGroupRequests[removedRequest.groupId] then
+        pendingGroupRequests[removedRequest.groupId].results[target] = {
+            answered = true,
+            accepted = false,
+            timedOut = false,
+            canceled = true
+        }
+    end
+
+    return removedRequest ~= nil
+end
+
+exports('cancelRequest', CancelRequest)
+
+local function CancelGroup(groupId, cancelledBy)
+    if not groupId or not pendingGroupRequests[groupId] then return false end
+    local info = pendingGroupRequests[groupId]
+    info.canceled = true
+    for targetId, q in pairs(playerQueues) do
+        for i = #q, 1, -1 do
+            local req = q[i]
+            if req and req.groupId == groupId then
+                local id = req.id
+                table.remove(q, i)
+                pendingGroupRequests[groupId].results[targetId] = {
+                    answered = false,
+                    accepted = false,
+                    timedOut = false,
+                    canceled = true
+                }
+                TriggerClientEvent('g5-request:client:remove', targetId, id)
+            end
+        end
+    end
+    return true
+end
+
+exports('cancelGroup', CancelGroup)
+
+RegisterNetEvent('g5-request:server:cancel', function(target, idOrGroup)
+    local src = source
+    if type(target) == 'string' and target:match('^group:') then
+        local groupId = target:sub(7)
+        CancelGroup(groupId, src)
+        return
+    end
+
+    if type(idOrGroup) == 'string' and idOrGroup:match('^group:') then
+        local groupId = idOrGroup:sub(7)
+        CancelGroup(groupId, src)
+        return
+    end
+
+    if tonumber(target) and idOrGroup then
+        CancelRequest(tonumber(target), idOrGroup, src)
+    end
 end)
 
 lib.addCommand('sendtestrequest', {
@@ -155,7 +254,7 @@ lib.addCommand('sendtestrequest', {
                 value = 'Cidade Central'
             }
         },
-        timeout = 15000,
+        timeout = 150000,
         tagColor = '#FF0000',
         progressColor = '#00FF00',
         codeColor = '#FFF',
@@ -217,13 +316,26 @@ lib.addCommand('sendgrouptest', {
     end
 end)
 
-lib.callback.register('g5-request:sendAndWait', function(source, targets, requestData, timeoutMs)
-    if type(targets) == 'number' then
-        targets = { targets }
+lib.addCommand('cancelrequest', {
+    help = 'Cancela um request enviado para um jogador (unitário)',
+    params = {
+        { name = 'target', type = 'playerId', help = 'Target player\'s server id' },
+        { name = 'id', type = 'string', help = 'Request id a ser cancelado' },
+    },
+    restricted = "group.admin"
+}, function(source, args, rawCommand)
+    local targetId = tonumber(args.target)
+    local reqId = args.id
+
+    if not targetId or not reqId or reqId == '' then
+        print('Uso: /cancelrequest <targetServerId> <requestId>')
+        return
     end
-    if type(targets) ~= 'table' then
-        return {}
+
+    local ok = CancelRequest(targetId, reqId, source)
+    if ok then
+        print(('[g5-request] Request %s cancelado para player %s'):format(reqId, tostring(targetId)))
+    else
+        print(('[g5-request] Request %s não encontrado para player %s'):format(reqId, tostring(targetId)))
     end
-    requestData = requestData or {}
-    return SendRequestAndWait(targets, requestData, timeoutMs)
 end)
