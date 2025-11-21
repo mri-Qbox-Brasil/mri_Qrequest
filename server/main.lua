@@ -345,6 +345,8 @@ lib.addCommand('sendtestrequest', {
         title = 'Teste de Request',
         titleIcon = 'user',
         titleIconColor = '#0000FF',
+        acceptText = 'Aceitar',
+        denyText = 'Recusar',
         tag = 'TESTE',
         code = '1234',
         extras = {

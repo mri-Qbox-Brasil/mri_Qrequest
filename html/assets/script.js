@@ -82,6 +82,8 @@ function addRequest(req) {
     const codeColor = req.codeColor || null;
     const titleIcon = req.titleIcon || null;
     const titleIconColor = req.titleIconColor || null;
+    const acceptText = req.acceptText || "Aceitar";
+    const denyText = req.denyText || "Recusar";
 
     const card = document.createElement('div');
     card.className = 'request-card';
@@ -206,7 +208,7 @@ function addRequest(req) {
 
     html += `
         <div class="card-footer">
-            <div class="mutedline small"><div class="ghost">[${acceptKey}] Aceitar</div> • <div class="btn ghost">[${denyKey}] Recusar</div></div>
+            <div class="mutedline small"><div class="ghost">[${acceptKey}] ${acceptText}</div> • <div class="btn ghost">[${denyKey}] ${denyText}</div></div>
         </div>
     </div>
     `;
