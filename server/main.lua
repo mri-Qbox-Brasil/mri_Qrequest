@@ -1,5 +1,5 @@
 local playerQueues = {}
-local pendingGroupRequests = {} -- nova tabela para acompanhar grupos de requests
+local pendingGroupRequests = {}
 
 local function ensureQueue(src)
     if not playerQueues[src] then playerQueues[src] = {} end
@@ -13,15 +13,47 @@ local function shallowCopy(t)
     return o
 end
 
-local function SendRequestAndWait(targets, requestData, timeoutMs)
+local function TryQueueRequest(target, requestData)
+    if not tonumber(target) then return { added = false, reason = 'invalid_target' } end
+    local tid = tonumber(target)
+    local q = ensureQueue(tid)
+
+    for _, existing in ipairs(q) do
+        if existing and (
+            (requestData.id and tostring(existing.id) == tostring(requestData.id)) or
+            (requestData.from and existing.from and tostring(existing.from) == tostring(requestData.from)
+                and requestData.code and existing.code and tostring(existing.code) == tostring(requestData.code)
+                and (not requestData.tag or tostring(existing.tag) == tostring(requestData.tag))
+            )
+        ) then
+            if requestData.prolong then
+                existing.timeout = requestData.timeout or 15000
+                TriggerClientEvent('g5-request:client:prolong', tid, existing.id, { set = existing.timeout })
+            end
+            return { added = false, reason = 'duplicate', existing = existing }
+        end
+    end
+
+    table.insert(q, requestData)
+    TriggerClientEvent('g5-request:client:add', tid, requestData)
+    return { added = true }
+end
+
+local function SendRequestAndWait(targets, requestData, timeoutMs, cb)
+    if type(targets) == 'number' then
+        targets = { targets }
+    end
+    if type(targets) ~= 'table' then
+        return {}
+    end
     timeoutMs = timeoutMs or (Config and Config.DefaultTimeout) or 15000
-    if type(targets) ~= 'table' then return {} end
 
     local groupId = tostring(os.time()) .. tostring(math.random(1000,9999))
     pendingGroupRequests[groupId] = {
         results = {},
         created = GetGameTimer(),
-        canceled = false
+        canceled = false,
+        pendingTargets = {} -- nova tabela para alvos que já tinham request duplicado
     }
 
     for _, targetId in ipairs(targets) do
@@ -30,7 +62,15 @@ local function SendRequestAndWait(targets, requestData, timeoutMs)
             rd.groupId = groupId
             rd.id = rd.id or (tostring(os.time()) .. tostring(math.random(1000,9999)))
             rd.timeout = rd.timeout or timeoutMs
-            TriggerEvent('g5-request:server:send', tonumber(targetId), rd)
+
+            local res = TryQueueRequest(tonumber(targetId), rd)
+            if res.added then
+                TriggerEvent('g5-request:server:send', tonumber(targetId), rd)
+            else
+                -- NÃO marcar como "resultado recebido" aqui.
+                -- Em vez disso registre como pendingTarget para que não finalize a espera.
+                pendingGroupRequests[groupId].pendingTargets[tonumber(targetId)] = true
+            end
         end
     end
 
@@ -38,7 +78,8 @@ local function SendRequestAndWait(targets, requestData, timeoutMs)
     while GetGameTimer() < waitUntil do
         local allReceived = true
         for _, targetId in ipairs(targets) do
-            if pendingGroupRequests[groupId].results[tonumber(targetId)] == nil then
+            local tid = tonumber(targetId)
+            if pendingGroupRequests[groupId].results[tid] == nil then
                 allReceived = false
                 break
             end
@@ -52,22 +93,28 @@ local function SendRequestAndWait(targets, requestData, timeoutMs)
         local tid = tonumber(targetId)
         local entry = pendingGroupRequests[groupId].results[tid]
         if entry == nil then
-            if pendingGroupRequests[groupId].canceled then
-                results[tid] = { answered = false, accepted = false, timedOut = false, canceled = true }
+            if pendingGroupRequests[groupId].pendingTargets and pendingGroupRequests[groupId].pendingTargets[tid] then
+                results[tid] = { answered = false, accepted = false, timedOut = false, canceled = false, pending = true }
             else
-                results[tid] = { answered = false, accepted = false, timedOut = true, canceled = false }
+                if pendingGroupRequests[groupId].canceled then
+                    results[tid] = { answered = false, accepted = false, timedOut = false, canceled = true, pending = false }
+                else
+                    results[tid] = { answered = false, accepted = false, timedOut = true, canceled = false, pending = false }
+                end
             end
         else
             results[tid] = {
                 answered = entry.answered == true,
                 accepted = entry.accepted == true,
                 timedOut = entry.timedOut == true,
-                canceled = entry.canceled == true
+                canceled = entry.canceled == true,
+                pending = entry.pending == true
             }
         end
     end
 
     pendingGroupRequests[groupId] = nil
+    if cb then cb(results) return end
     return results
 end
 
@@ -80,9 +127,16 @@ RegisterNetEvent('g5-request:server:send', function(target, requestData)
     requestData.from = requestData.from or src
     requestData.timeout = requestData.timeout or 15000
 
-    local q = ensureQueue(target)
-    table.insert(q, requestData)
-    TriggerClientEvent('g5-request:client:add', target, requestData)
+    local try = TryQueueRequest(target, requestData)
+    if not try.added then
+        local origin = requestData.from or src
+        if origin and tonumber(origin) and tonumber(origin) > 0 then
+            TriggerClientEvent('g5-request:server:duplicate_notify', tonumber(origin), tonumber(target), requestData, try.existing and try.existing.id or nil)
+        else
+            TriggerEvent('g5-request:server:send:duplicate', target, requestData, try.existing)
+        end
+        return
+    end
 end)
 
 local function HandleClientAnswer(src, id, accepted)
@@ -132,12 +186,6 @@ AddEventHandler('playerDropped', function()
 end)
 
 lib.callback.register('g5-request:sendAndWait', function(source, targets, requestData, timeoutMs)
-    if type(targets) == 'number' then
-        targets = { targets }
-    end
-    if type(targets) ~= 'table' then
-        return {}
-    end
     requestData = requestData or {}
     return SendRequestAndWait(targets, requestData, timeoutMs)
 end)
@@ -196,6 +244,67 @@ end
 
 exports('cancelGroup', CancelGroup)
 
+local function GetRequestStatus(target, idOrMatcher)
+    if not target then return nil end
+    local q = playerQueues[target] or {}
+    if not idOrMatcher then
+        local list = {}
+        for _, r in ipairs(q) do
+            table.insert(list, {
+                id = r.id,
+                from = r.from,
+                code = r.code,
+                tag = r.tag,
+                timeout = r.timeout,
+                groupId = r.groupId
+            })
+        end
+        return { found = (#list > 0), queue = list }
+    end
+
+    for _, r in ipairs(q) do
+        if tostring(r.id) == tostring(idOrMatcher) then
+            return { found = true, inQueue = true, request = shallowCopy(r) }
+        end
+    end
+
+    if type(idOrMatcher) == 'table' then
+        for _, r in ipairs(q) do
+            local ok = true
+            if idOrMatcher.from and tostring(r.from) ~= tostring(idOrMatcher.from) then ok = false end
+            if idOrMatcher.code and tostring(r.code) ~= tostring(idOrMatcher.code) then ok = false end
+            if idOrMatcher.tag and tostring(r.tag) ~= tostring(idOrMatcher.tag) then ok = false end
+            if ok then
+                return { found = true, inQueue = true, request = shallowCopy(r) }
+            end
+        end
+    end
+
+    return { found = false }
+end
+
+exports('getRequestStatus', GetRequestStatus)
+
+local function GetGroupStatus(groupId)
+    if not groupId then return nil end
+    local info = pendingGroupRequests[groupId]
+    if not info then return nil end
+    local resultsCopy = {}
+    for k, v in pairs(info.results or {}) do resultsCopy[k] = shallowCopy(v) end
+    local pendingCopy = {}
+    if info.pendingTargets then
+        for k, v in pairs(info.pendingTargets) do pendingCopy[k] = v end
+    end
+    return {
+        created = info.created,
+        canceled = info.canceled,
+        results = resultsCopy,
+        pendingTargets = pendingCopy
+    }
+end
+
+exports('getGroupStatus', GetGroupStatus)
+
 RegisterNetEvent('g5-request:server:cancel', function(target, idOrGroup)
     local src = source
     if type(target) == 'string' and target:match('^group:') then
@@ -235,6 +344,8 @@ lib.addCommand('sendtestrequest', {
         title = 'Teste de Request',
         titleIcon = 'user',
         titleIconColor = '#0000FF',
+        acceptText = 'Aceitar',
+        denyText = 'Recusar',
         tag = 'TESTE',
         code = '1234',
         extras = {
@@ -338,4 +449,13 @@ lib.addCommand('cancelrequest', {
     else
         print(('[g5-request] Request %s não encontrado para player %s'):format(reqId, tostring(targetId)))
     end
+end)
+
+lib.callback.register('g5-request:getRequestStatus', function(source, target, idOrMatcher)
+    if type(target) == 'string' and tonumber(target) then target = tonumber(target) end
+    return GetRequestStatus(target, idOrMatcher)
+end)
+
+lib.callback.register('g5-request:getGroupStatus', function(source, groupId)
+    return GetGroupStatus(groupId)
 end)

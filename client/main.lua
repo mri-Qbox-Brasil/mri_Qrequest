@@ -56,6 +56,15 @@ RegisterNetEvent('g5-request:client:remove', function(id)
     SendNUIMessage({ action = 'remove', id = id })
 end)
 
+RegisterNetEvent('g5-request:client:prolong', function(id, params)
+    if not id then return end
+    SendNUIMessage({
+        action = 'prolong',
+        id = id,
+        set = params and params.set or nil
+    })
+end)
+
 RegisterNUICallback('g5_request_answer', function(data, cb)
     local id = data.id
     local accepted = data.accepted

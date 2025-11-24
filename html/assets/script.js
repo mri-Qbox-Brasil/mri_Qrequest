@@ -21,6 +21,8 @@ window.addEventListener('message', (ev) => {
         flashAccept(d.id);
     } else if (d.action === 'flashDeny' && d.id) {
         flashDeny(d.id);
+    } else if (d.action === 'prolong' && d.id) {
+        prolongRequest(d.id, d.set);
     }
 });
 
@@ -80,6 +82,8 @@ function addRequest(req) {
     const codeColor = req.codeColor || null;
     const titleIcon = req.titleIcon || null;
     const titleIconColor = req.titleIconColor || null;
+    const acceptText = req.acceptText || "Aceitar";
+    const denyText = req.denyText || "Recusar";
 
     const card = document.createElement('div');
     card.className = 'request-card';
@@ -204,7 +208,7 @@ function addRequest(req) {
 
     html += `
         <div class="card-footer">
-            <div class="mutedline small"><div class="ghost">[${acceptKey}] Aceitar</div> • <div class="btn ghost">[${denyKey}] Recusar</div></div>
+            <div class="mutedline small"><div class="ghost">[${acceptKey}] ${acceptText}</div> • <div class="btn ghost">[${denyKey}] ${denyText}</div></div>
         </div>
     </div>
     `;
@@ -304,6 +308,35 @@ function flashDeny(id) {
     const el = requests[i].el;
     el.style.boxShadow = '0 0 12px rgba(200,60,60,0.8)';
     setTimeout(() => el.style.boxShadow = '', 400);
+}
+
+function prolongRequest(id, setMs) {
+    const i = findIndexById(id);
+    if (i === -1) return;
+    const rec = requests[i];
+    if (rec.timeoutHandle) cancelAnimationFrame(rec.timeoutHandle);
+    const now = performance.now();
+
+    if (typeof setMs === 'number') {
+        rec.duration = setMs;
+        rec.startedAt = now;
+    } else {
+        rec.startedAt = now;
+    }
+
+    const tick = () => {
+        const now2 = performance.now();
+        const elapsed2 = now2 - rec.startedAt;
+        const pct2 = Math.max(0, Math.min(1, 1 - (elapsed2 / rec.duration)));
+        if (rec.bar) rec.bar.style.width = (pct2 * 100) + '%';
+        if (elapsed2 >= rec.duration) {
+            sendAnswer(id, false);
+            removeRequest(id);
+            return;
+        }
+        rec.timeoutHandle = requestAnimationFrame(tick);
+    };
+    rec.timeoutHandle = requestAnimationFrame(tick);
 }
 
 window.exports = window.exports || {};

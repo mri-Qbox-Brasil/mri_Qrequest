@@ -113,6 +113,7 @@ Formato do retorno:
   - `accepted` (boolean): se aceitou.
   - `timedOut` (boolean): se expirou sem resposta.
   - `canceled` (boolean): se o request foi cancelado.
+  - `pending` (boolean): se o request não foi enviado por ser considerado duplicado (já pendente) — nesse caso `answered=false` e `pending=true`.
 
 Internamente o servidor cria um `groupId` para correlacionar respostas e aguarda até `timeoutMs` (ou `Config.DefaultTimeout`) antes de devolver resultados.
 
@@ -169,6 +170,31 @@ Observação adicional sobre comportamento:
 - Cancelar um grupo marca o grupo como cancelado e tenta remover todos os requests relacionados nas filas dos jogadores; os resultados do export `sendAndWait` para esses alvos terão `canceled = true`.
 - Cancelar um request individual remove da fila do jogador e, se o request pertencer a um grupo pendente, marca o resultado daquele jogador como cancelado.
 
+## Status / Verificação de requests
+
+Fornecemos APIs para checar o status de requests (úteis para scripts que devem auditar ou reagir a estados):
+
+- Exports (server):
+```lua
+-- retorna tabela resumida ou informação específica
+local info = exports['g5-request']:getRequestStatus(targetServerId, requestIdOrMatcher)
+-- retorna nil se não existir
+local group = exports['g5-request']:getGroupStatus(groupId)
+```
+
+- Callbacks (pode usar lib.callback/await ou lib.callback):
+```lua
+local info = lib.callback.await('g5-request:getRequestStatus', targetServerId, requestIdOrMatcher)
+local group = lib.callback.await('g5-request:getGroupStatus', groupId)
+```
+
+Formato de retorno de getRequestStatus:
+- Quando chamado só com target (segundo argumento nil): { found = boolean, queue = { {id, from, code, tag, timeout, groupId}, ... } }
+- Quando chamado com id: { found = true, inQueue = true, request = <requestData> } ou { found = false }
+
+Formato de retorno de getGroupStatus:
+- { created = <timestamp>, canceled = <boolean>, results = { [targetId] = { answered, accepted, timedOut, canceled, pending }, ... }, pendingTargets = { [targetId] = true, ... } }
+
 ## Callbacks / Eventos relevantes
 - Evento para envio: `g5-request:server:send` (server-side).
 - Callback server para respostas: `g5-request:answer` (registrado via `lib.callback.register` no servidor). Recebe (source, id, accepted) e retorna boolean indicando sucesso.
@@ -195,4 +221,17 @@ Para testar o envio de requests, utilize os seguintes comandos (implementados no
 - Para chamadas de grupo, se um jogador não responder antes do timeout, o resultado para ele terá `answered = false`, `accepted = false` e `timedOut = true`.
 
 Contribuições e melhorias são bem-vindas — abra PRs ou issues. 🙌
+
+## Comportamento de duplicatas / request pendente
+- Se você tentar enviar o "mesmo" request para um jogador duas vezes (mesma id, ou mesma combinação originador+code+tag), o servidor evita inserir duplicatas na fila.
+- Para chamadas via export `sendAndWait`, alvos que já possuíam o mesmo request receberão um resultado com `pending = true` (e `answered=false`), permitindo que o chamador saiba que o request já está pendente.
+- Quando um envio simples via evento for duplicado, o originador é notificado:
+  - Cliente originador recebe: `g5-request:server:duplicate_notify` (targetId, requestData, existingRequestId)
+  - Server-side originador (TriggerEvent) dispara `g5-request:server:send:duplicate` para que scripts server possam tratar.
+
+Prolongamento (prolong)
+- Você pode solicitar que um request já pendente tenha seu timeout reiniciado usando o campo `prolong` no `requestData`.
+  - `prolong = <number>` — define o novo timeout em ms e REINICIA o timer para esse valor.
+  - `prolong = true` e `requestData.timeout = <number>` — usa `requestData.timeout` como novo timeout e REINICIA o timer.
+- Observação: o comportamento agora é "reset" (começar o tempo de novo), não "adicionar" ao tempo restante do request existente.
 
