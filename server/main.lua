@@ -39,9 +39,14 @@ local function TryQueueRequest(target, requestData)
     return { added = true }
 end
 
-local function SendRequestAndWait(targets, requestData, timeoutMs)
+local function SendRequestAndWait(targets, requestData, timeoutMs, cb)
+    if type(targets) == 'number' then
+        targets = { targets }
+    end
+    if type(targets) ~= 'table' then
+        return {}
+    end
     timeoutMs = timeoutMs or (Config and Config.DefaultTimeout) or 15000
-    if type(targets) ~= 'table' then return {} end
 
     local groupId = tostring(os.time()) .. tostring(math.random(1000,9999))
     pendingGroupRequests[groupId] = {
@@ -109,6 +114,7 @@ local function SendRequestAndWait(targets, requestData, timeoutMs)
     end
 
     pendingGroupRequests[groupId] = nil
+    if cb then cb(results) return end
     return results
 end
 
@@ -180,12 +186,6 @@ AddEventHandler('playerDropped', function()
 end)
 
 lib.callback.register('g5-request:sendAndWait', function(source, targets, requestData, timeoutMs)
-    if type(targets) == 'number' then
-        targets = { targets }
-    end
-    if type(targets) ~= 'table' then
-        return {}
-    end
     requestData = requestData or {}
     return SendRequestAndWait(targets, requestData, timeoutMs)
 end)
@@ -243,7 +243,6 @@ local function CancelGroup(groupId, cancelledBy)
 end
 
 exports('cancelGroup', CancelGroup)
-
 
 local function GetRequestStatus(target, idOrMatcher)
     if not target then return nil end
