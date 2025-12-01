@@ -1,0 +1,17 @@
+{
+    "name": "g5-request-root",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "start:web": "npm --prefix web run start",
+        "start": "npm run start:web",
+        "start:game:web": "npm --prefix web run start:game",
+        "start:game": "npm run start:game:web",
+        "build:web": "node scripts/installIfMissing.js && npm --prefix web run build",
+        "build": "npm run build:web && npm run copy-build",
+        "preview:web": "npm --prefix web run preview",
+        "preview": "npm run preview:web",
+        "copy-build": "node scripts/copyBuild.js",
+        "postinstall": "node scripts/installIfMissing.js"
+    }
+}
