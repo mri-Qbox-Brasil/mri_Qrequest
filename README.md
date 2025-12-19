@@ -14,6 +14,156 @@ Pequeno sistema de "requests" (notificações com opção de aceitar/recusar) pa
 2. Adicione `ensure g5-request` no `server.cfg`.
 3. Tenha `ox_lib` instalado e disponível no servidor.
 
+### Frontend (desenvolvimento local)
+
+O projeto inclui uma versão React/Vite para desenvolvimento em `web/` (NUI em React + Tailwind).
+
+Recomendações rápidas para rodar o painel de desenvolvimento:
+
+```powershell
+cd web
+npm install
+# Instale as dependências do Tailwind (se ainda não estiverem instaladas)
+npm install -D tailwindcss postcss autoprefixer
+# iniciar servidor de desenvolvimento
+npm run start
+```
+
+Observações (dev):
+- Para o dev server servir os sons usados pela NUI, copie os assets para `web/public/assets` (ou crie um link/robocopy). Exemplo:
+
+```powershell
+# do diretório raíz do repo
+mkdir web\public\assets\sound -Force
+robocopy html\assets web\public\assets /E
+```
+
+- O painel de testes (`DevPanel`) aparece automaticamente quando a aplicação detectar que está rodando num navegador (modo dev). Ele permite disparar mensagens que simulam os eventos NUI originais (`add`, `remove`, `flashAccept`, `flashDeny`, `prolong`, `init`).
+
+### Build & Deploy (automação raiz)
+
+Existe um script na raiz do repositório que compila a aplicação web e copia os artefatos para a pasta `html/` utilizada pelo recurso FiveM. Ele facilita o deploy sem precisar rodar manualmente comandos dentro de `web/`.
+
+- Para gerar a build e copiar para `html/` rode (na raiz do repo):
+
+```powershell
+cd G:\path\to\g5-request
+npm run build
+```
+
+- O que esse script faz:
+	- executa um instalador condicional em `web/` que roda `npm install` somente se `web/node_modules` estiver faltando ou vazio (`scripts/installIfMissing.js`).
+	- roda `npm run build` dentro de `web/` (Vite build) gerando a pasta `web/build/`.
+	- executa `scripts/copyBuild.js` que copia recursivamente `web/build/*` para `html/`.
+
+- Notas sobre o comportamento do copy:
+	- Antes de copiar, o script limpa `html/` recursivamente, **mas preserva qualquer pasta chamada** `sound` (em qualquer nível, ex: `html/sound` ou `html/assets/sound`). Isso evita sobrescrever/errar os arquivos de áudio que você colocará manualmente no servidor.
+	- Arquivos existentes em `html/` diferentes de `sound` serão removidos e substituídos pelos gerados em `web/build/`.
+
+- Saída de build padrão (exemplo): `web/build/index.html`, `web/build/assets/scripts.js`, `web/build/assets/styles.css`.
+	- Observação: a configuração atual gera nomes fixos para os bundles (para facilitar integração NUI), portanto lembre de limpar cache do cliente ou usar versionamento manual após deploy.
+
+- `postinstall` na raiz também chama o instalador condicional: ao rodar `npm install` na raiz, o script garante que `web` tenha suas dependências instaladas caso necessário.
+
+- Em CI, para instalações reprodutíveis, prefira usar `npm ci --prefix web`; posso alterar o comportamento do instalador condicional para usar `ci` se desejar.
+
+## Tema / Customização (NUI)
+
+O sistema agora suporta **múltiplos temas** por tipo de request! Você pode definir temas diferentes para ambulância, polícia, bombeiro, recrutamento, etc. e o sistema aplica automaticamente baseado no tipo do request.
+
+### Configuração de temas
+
+Os temas são definidos no arquivo `shared/theme.lua` como uma tabela indexada por tipo:
+
+```lua
+Themes = {
+    ['default'] = {
+        card_bg = 'rgba(6,8,10,0.78)',
+        title_bg = 'rgba(0,0,0,0.55)',
+        text = '#F4F7F8',
+        muted = '#AAB7B9',
+        tag_bg = 'rgba(34,197,94,0.14)',
+        tag_fg = '#042712',
+        progress_color = '#16A34A',
+        accent = '#22C55E',
+        -- ...
+    },
+    ['bombeiro'] = {
+        card_bg = 'rgba(10,6,6,0.78)',
+        tag_bg = 'rgba(249,115,22,0.14)',
+        tag_fg = '#7c2d12',
+        progress_color = '#ea580c',
+        accent = '#f97316',
+        -- ...
+    },
+    ['ambulancia'] = {
+        -- tema vermelho para ambulância
+    },
+    ['police'] = {
+        -- tema azul para polícia
+    },
+    -- ... adicione mais temas conforme necessário
+}
+```
+
+### Temas padrão incluídos
+
+O sistema já vem com 5 temas pré-configurados:
+- **default**: Verde (tema padrão)
+- **ambulancia**: Vermelho (para serviços médicos)
+- **police**: Azul (para polícia)
+- **bombeiro**: Laranja (para bombeiros)
+- **recrutamento**: Roxo (para processos de recrutamento)
+
+### Usando temas em requests
+
+Para aplicar um tema específico a um request, adicione o campo `themeType`:
+
+```lua
+local request = {
+    title = 'Chamado Médico',
+    tag = 'AMBULANCIA',
+    code = 'A1',
+    themeType = 'ambulancia', -- aplica o tema de ambulância
+    extras = {
+        { icon = 'heart', name = 'Urgência', value = 'Alta' }
+    },
+    timeout = 15000
+}
+TriggerEvent('g5-request:server:send', targetId, request)
+```
+
+Se `themeType` não for especificado, o tema `default` será usado.
+
+### Campos de tema disponíveis
+
+- **Cores de fundo**: `card_bg`, `title_bg`, `progress_bg`
+- **Cores de texto**: `text`, `muted`, `tag_fg`, `code_fg`
+- **Cores de destaque**: `tag_bg`, `code_bg`, `progress_color`, `accent`
+- **Tamanhos**: `card_width` (ex: `360px`), `card_gap` (ex: `12px`)
+- **Imagem de fundo** (opcional): `bg_image`, `bg_size`, `bg_position`
+
+### Formatos de cor aceitos
+
+- `#rrggbb` ou `#rgb` (hex)
+- `#rrggbbaa` (hex com alpha/transparência)
+- `rgba(r,g,b,a)` (função CSS)
+
+### Arquitetura do sistema de temas
+
+O sistema utiliza React Context para gerenciar temas:
+- **ThemeContext** (`web/src/contexts/ThemeContext.tsx`): Gerencia os temas e aplica CSS variables
+- **ThemeProvider**: Envolve a aplicação e fornece acesso aos temas
+- Os temas são enviados do servidor via NUI message (`action: 'init'`)
+- Cada request pode especificar seu `themeType` para trocar de tema dinamicamente
+
+Recomendações:
+- Prefira usar `rgba()` ou `#rrggbbaa` se precisar de transparência
+- Mantenha consistência nas cores de cada tipo de serviço
+- Teste os temas em diferentes condições de iluminação do jogo
+
+
+
 ## Estrutura de arquivos 📁
 ```
 g5-request/
@@ -177,6 +327,7 @@ Formato de retorno de getGroupStatus:
 Para testar o envio de requests, utilize os seguintes comandos (implementados no servidor):
  - `/sendtestrequest <target>` — envia um request de teste para `target` (server id).
  - `/sendgrouptest <id1,id2,...>` — envia para múltiplos alvos e aguarda respostas (usa export internamente).
+ - `/testthemes <target>` — envia 5 requests sequenciais testando todos os temas predefinidos (ambulancia, police, bombeiro, recrutamento, default).
 
 ## NUI / comportamento do cliente
  - A NUI recebe a tecla atual de aceitar/recusar (vinda do keybind registrado no cliente) ao inicializar via `init` message.

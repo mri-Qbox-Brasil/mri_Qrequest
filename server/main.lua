@@ -451,6 +451,128 @@ lib.addCommand('cancelrequest', {
     end
 end)
 
+lib.addCommand('testthemes', {
+    help = 'Envia requests de teste com todos os temas predefinidos (ambulancia, police, bombeiro, recrutamento, default)',
+    params = {
+        {
+            name = 'target',
+            type = 'playerId',
+            help = 'ID do jogador alvo',
+        },
+    },
+    restricted = "group.admin"
+}, function(source, args, rawCommand)
+    local targetId = tonumber(args.target)
+    if not targetId then
+        print('Uso: /testthemes <targetServerId>')
+        return
+    end
+
+    -- Define os temas a serem testados com suas respectivas configurações
+    local themesTest = {
+        {
+            name = 'ambulancia',
+            themeType = 'ambulancia',
+            title = 'Chamado Médico',
+            titleIcon = 'ambulance',
+            tag = 'AMBULÂNCIA',
+            code = 'A-' .. tostring(math.random(100, 999)),
+            extras = {
+                { icon = 'map-marker', name = 'Local', value = 'Hospital Central' },
+                { icon = 'heartbeat', name = 'Urgência', value = 'Alta' },
+                { icon = 'user', name = 'Paciente', value = 'Civil ferido' }
+            },
+            sound = 'mixkit-doorbell-tone-2864'
+        },
+        {
+            name = 'police',
+            themeType = 'police',
+            title = 'Ocorrência Policial',
+            titleIcon = 'shield',
+            tag = 'POLÍCIA',
+            code = 'P-' .. tostring(math.random(100, 999)),
+            extras = {
+                { icon = 'map-marker', name = 'Local', value = 'Delegacia Central' },
+                { icon = 'exclamation-triangle', name = 'Tipo', value = 'Assalto em Progresso' },
+                { icon = 'clock', name = 'Prioridade', value = 'Urgente' }
+            },
+            sound = 'mixkit-sci-fi-click-900'
+        },
+        {
+            name = 'bombeiro',
+            themeType = 'bombeiro',
+            title = 'Emergência Bombeiros',
+            titleIcon = 'fire',
+            tag = 'BOMBEIRO',
+            code = 'B-' .. tostring(math.random(100, 999)),
+            extras = {
+                { icon = 'map-marker', name = 'Local', value = 'Prédio Downtown' },
+                { icon = 'fire', name = 'Situação', value = 'Incêndio Grande Porte' },
+                { icon = 'exclamation', name = 'Risco', value = 'Alto' }
+            },
+            sound = 'mixkit-gaming-lock-2848'
+        },
+        {
+            name = 'recrutamento',
+            themeType = 'recrutamento',
+            title = 'Convite de Recrutamento',
+            titleIcon = 'users',
+            tag = 'RECRUTAMENTO',
+            code = 'R-' .. tostring(math.random(100, 999)),
+            extras = {
+                { icon = 'building', name = 'Organização', value = 'G5 Corporation' },
+                { icon = 'star', name = 'Cargo', value = 'Recruta Nível I' },
+                { icon = 'money', name = 'Benefícios', value = 'Salário + Bonus' }
+            },
+            sound = 'mixkit-confirmation-tone-2867'
+        },
+        {
+            name = 'default',
+            themeType = 'default',
+            title = 'Solicitação Geral',
+            titleIcon = 'info-circle',
+            tag = 'GERAL',
+            code = 'G-' .. tostring(math.random(100, 999)),
+            extras = {
+                { icon = 'info-circle', name = 'Tipo', value = 'Informação Padrão' },
+                { icon = 'user', name = 'Remetente', value = 'Sistema' },
+                { icon = 'clock', name = 'Tempo', value = '15 segundos' }
+            },
+            sound = 'mixkit-interface-option-select-2573'
+        }
+    }
+
+    print('[g5-request] Enviando ' .. #themesTest .. ' requests de teste com temas para player ' .. tostring(targetId))
+
+    -- Envia cada request com um delay entre eles
+    CreateThread(function()
+        for i, themeData in ipairs(themesTest) do
+            local requestData = {
+                title = themeData.title,
+                titleIcon = themeData.titleIcon,
+                tag = themeData.tag,
+                code = themeData.code,
+                themeType = themeData.themeType,
+                extras = themeData.extras,
+                timeout = 18000, -- 18 segundos
+                acceptText = 'Aceitar',
+                denyText = 'Recusar',
+                sound = themeData.sound
+            }
+
+            TriggerEvent('g5-request:server:send', targetId, requestData)
+            print('[g5-request] Enviado tema: ' .. themeData.name .. ' (' .. i .. '/' .. #themesTest .. ')')
+
+            -- Delay de 1.5 segundos entre cada request para não sobrecarregar
+            if i < #themesTest then
+                Wait(1500)
+            end
+        end
+
+        print('[g5-request] Todos os temas foram enviados para player ' .. tostring(targetId))
+    end)
+end)
+
 lib.callback.register('g5-request:getRequestStatus', function(source, target, idOrMatcher)
     if type(target) == 'string' and tonumber(target) then target = tonumber(target) end
     return GetRequestStatus(target, idOrMatcher)
