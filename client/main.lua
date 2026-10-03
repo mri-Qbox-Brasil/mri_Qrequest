@@ -1,103 +1,113 @@
-local requests = {}
+-- mri_Qrequest (formerly g5-request)
+-- Core initialization and critical commands
 
-local acceptKeybind = lib.addKeybind({
-    name = 'g5_req_accept',
-    description = 'Aceitar request',
-    defaultKey = Config.AcceptKey or 'Y',
-    onReleased = function(self)
-        if #requests > 0 then
-            local id = requests[1].id
-            SendNUIMessage({action = 'flashAccept', id = id})
-            lib.callback('g5-request:answer', false, function(_) end, id, true)
-            table.remove(requests, 1)
-            SendNUIMessage({action = 'remove', id = id})
-        end
-    end
-})
+local resourceName = GetCurrentResourceName()
 
-local denyKeybind = lib.addKeybind({
-    name = 'g5_req_deny',
-    description = 'Recusar request',
-    defaultKey = Config.DenyKey or 'N',
-    onReleased = function(self)
-        if #requests > 0 then
-            local id = requests[1].id
-            SendNUIMessage({action = 'flashDeny', id = id})
-            lib.callback('g5-request:answer', false, function(_) end, id, false)
-            table.remove(requests, 1)
-            SendNUIMessage({action = 'remove', id = id})
-        end
-    end
-})
-
-local function removeRequest(id)
-    for i, r in ipairs(requests) do
-        if tostring(r.id) == tostring(id) then
-            table.remove(requests, i)
-            break
-        end
+-- Helper to wait for config load if necessary
+local function WaitForConfig()
+    while not Config or not Config.OpenSettingsKey do
+        Wait(100)
     end
 end
 
-RegisterNetEvent('g5-request:client:add', function(requestData)
-    table.insert(requests, requestData)
-    SendNUIMessage({
-        action = 'init',
-        acceptKey = acceptKeybind.currentKey or Config.AcceptKey,
-        denyKey = denyKeybind.currentKey or Config.DenyKey,
-        position = Config.Position or 'top-right',
-        themes = Themes
-    })
-    SendNUIMessage({action = 'add', request = requestData})
-end)
-
-RegisterNetEvent('g5-request:client:remove', function(id)
-    if not id then return end
-    removeRequest(id)
-    SendNUIMessage({ action = 'remove', id = id })
-end)
-
-RegisterNetEvent('g5-request:client:prolong', function(id, params)
-    if not id then return end
-    SendNUIMessage({
-        action = 'prolong',
-        id = id,
-        set = params and params.set or nil
-    })
-end)
-
-RegisterNUICallback('g5_request_answer', function(data, cb)
-    local id = data.id
-    local accepted = data.accepted
-    if not id then
-        cb({ok = false})
-        return
-    end
-
-    for i, r in ipairs(requests) do
-        if tostring(r.id) == tostring(id) then
-            table.remove(requests, i)
-            break
-        end
-    end
-
-    lib.callback('g5-request:answer', id, accepted, function(res)
-        cb({ok = true})
-    end)
-end)
-
-RegisterNUICallback('g5_nui_ready', function(_, cb)
-    print('g5-request NUI ready')
-    SendNUIMessage({
-        action = 'init',
-        acceptKey = acceptKeybind.currentKey or Config.AcceptKey,
-        denyKey = denyKeybind.currentKey or Config.DenyKey,
-        position = Config.Position or 'top-right',
-        themes = Themes
-    })
+RegisterNUICallback('nuiReady', function(_, cb)
+    print(string.format('[%s] NUI ready', resourceName))
+    TriggerEvent(resourceName..':client:nuiReady')
     SendNUIMessage({
         action = 'setVisible',
         data = true
     })
     cb({ok = true})
 end)
+
+CreateThread(function()
+    WaitForConfig()
+
+    RegisterCommand('ui_settings', function()
+        -- Toggle Settings
+        SetNuiFocus(true, true)
+        SendNUIMessage({ action = 'setVisible', data = true })
+        SendNUIMessage({ action = 'openSettings' })
+    end)
+    RegisterKeyMapping('ui_settings', 'Open Settings', 'keyboard', Config.OpenSettingsKey or 'F3')
+
+    RegisterCommand('ui_dispatch', function()
+        -- Toggle Dispatch Menu
+        SetNuiFocus(true, true)
+        SendNUIMessage({ action = 'setVisible', data = true })
+        SendNUIMessage({ action = 'openDispatch' })
+    end)
+    RegisterKeyMapping('ui_dispatch', 'Open Dispatch Menu', 'keyboard', Config.OpenDispatchMenu or 'F2')
+end)
+
+RegisterNetEvent(resourceName..':client:openMenu', function()
+    SetNuiFocus(true, true)
+    SendNUIMessage({ action = 'setVisible', data = true })
+    SendNUIMessage({ action = 'openDispatch' })
+end)
+
+RegisterNUICallback('close', function(_, cb)
+    SetNuiFocus(false, false)
+    cb({ok = true})
+end)
+
+-- ---------------------------------------------------------------------------
+-- Painel admin (standalone via comando + callbacks compartilhados com o modo
+-- embedded no mri_Qadmin). Os callbacks funcionam nos dois modos porque o
+-- iframe do Qadmin aponta para o proprio resource.
+-- ---------------------------------------------------------------------------
+
+local function openAdmin()
+    SetNuiFocus(true, true)
+    SendNUIMessage({ action = 'setVisible', data = true })
+    SendNUIMessage({ action = 'openAdmin', data = LastAdminSnapshot })
+end
+
+RegisterCommand('dispatchadmin', openAdmin, false)
+RegisterNetEvent(resourceName .. ':client:openAdmin', openAdmin)
+
+RegisterNUICallback('adminClose', function(_, cb)
+    SetNuiFocus(false, false)
+    SendNUIMessage({ action = 'closeAdmin' })
+    cb({ ok = true })
+end)
+
+-- Fetch on-demand (o modo embedded nao passa pelo comando que empurra o
+-- snapshot via SendNUIMessage).
+RegisterNUICallback('adminGetConfig', function(_, cb)
+    local snap = LastAdminSnapshot or lib.callback.await(resourceName .. ':server:getAdminConfig', false)
+    LastAdminSnapshot = snap
+    cb(snap or {})
+end)
+
+RegisterNUICallback('adminSaveConfig', function(payload, cb)
+    local ok, result = lib.callback.await(resourceName .. ':server:saveAdminConfig', false, payload)
+    if ok and type(result) == 'table' then LastAdminSnapshot = result end
+    cb({ success = ok == true, config = ok and result or nil, error = (not ok) and result or nil })
+end)
+
+RegisterNUICallback('adminResetConfig', function(_, cb)
+    local ok, result = lib.callback.await(resourceName .. ':server:resetAdminConfig', false)
+    if ok and type(result) == 'table' then LastAdminSnapshot = result end
+    cb({ success = ok == true, config = ok and result or nil, error = (not ok) and result or nil })
+end)
+
+RegisterNUICallback('adminGetMyCoords', function(_, cb)
+    local coords = GetEntityCoords(PlayerPedId())
+    local heading = GetEntityHeading(PlayerPedId())
+    cb({ x = coords.x, y = coords.y, z = coords.z, heading = heading })
+end)
+
+RegisterCommand("callsign", function(source, args, rawCommand)
+    local callsign = args[1]
+    if callsign then
+        LocalPlayer.state.callsign = callsign
+        lib.notify({title = 'Callsign', description = locale('callsign_updated', callsign), type = 'success'})
+        SendNUIMessage({
+            action = 'updateCallsign',
+            callsign = callsign
+        })
+    else
+        lib.notify({title = 'Callsign', description = locale('callsign_usage'), type = 'error'})
+    end
+end, false)

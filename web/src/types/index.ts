@@ -1,0 +1,24 @@
+export type RequestData = {
+  id: string | number;
+  timeout?: number;
+  priority?: number | null;
+  themeType?: string | null;
+  tagColor?: string | null;
+  progressColor?: string | null;
+  codeColor?: string | null;
+  titleIcon?: string | null;
+  titleIconColor?: string | null;
+  acceptText?: string | null;
+  denyText?: string | null;
+  tagText?: string | null;
+  tag?: string | null;
+  code?: string | null;
+  title?: string | null;
+  extras?: unknown;
+  sound?: string | null;
+  hideDeny?: boolean;
+  forceShow?: boolean;
+  expiresIn?: number | null;
+  units?: { callsign: string; type?: string }[];
+  vehicle?: { plate: string; model: string; color?: string; class?: string };
+};

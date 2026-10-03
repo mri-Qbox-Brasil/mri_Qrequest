@@ -1,4 +1,13 @@
 import React, { useState } from "react";
+import {
+  MriCard,
+  MriCardHeader,
+  MriCardTitle,
+  MriCardContent,
+  MriInput,
+  MriTextarea,
+  MriButton,
+} from "@mriqbox/ui-kit";
 import { isEnvBrowser } from "../utils/misc";
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -11,14 +20,15 @@ const DevPanel: React.FC = () => {
   const [id, setId] = useState(1);
   const [position, setPosition] = useState<"top-right" | "top-left">("top-right");
   const [themeType, setThemeType] = useState<string>("default");
-  const [themeInput, setThemeInput] = useState<string>(JSON.stringify({ card_bg: 'rgba(0,0,0,0.8)', progress_color: '#22c55e' }, null, 2));
-  const [bgUrl, setBgUrl] = useState<string>('');
+  const [themeInput, setThemeInput] = useState<string>(
+    JSON.stringify({ progress_color: "#22c55e", accent: "#22c55e" }, null, 2),
+  );
   const { setThemeType: applyThemeType } = useTheme();
 
   if (!isEnvBrowser()) return null;
 
-  function sendMessage(msg: any) {
-    window.postMessage(msg, '*');
+  function sendMessage(msg: Record<string, unknown>) {
+    window.postMessage(msg, "*");
   }
 
   function addRequest() {
@@ -34,22 +44,109 @@ const DevPanel: React.FC = () => {
       extras: [{ icon: "user", name: "Nome", value: "Teste" }],
     };
     sendMessage({ action: "add", request: req });
+    setId((prev) => prev + 1);
+  }
+
+  function fireMany(count = 5) {
+    for (let i = 0; i < count; i++) {
+      const nextId = id + i;
+      const themeList = ["default", "ambulancia", "police", "bombeiro", "recrutamento"];
+      const randomTheme = themeList[Math.floor(Math.random() * themeList.length)];
+
+      const req = {
+        id: nextId,
+        title: `Pedido Múltiplo #${nextId}`,
+        tag: "TEST",
+        tagText: "TEST",
+        code: `10-${10 + i}`,
+        timeout: 10000 + i * 1000,
+        themeType: randomTheme !== "default" ? randomTheme : undefined,
+        extras: [
+          { icon: "map-marker", name: "Local", value: "Rua das Flores" },
+          { icon: "user", name: "Solicitante", value: "João Silva" },
+        ],
+      };
+      sendMessage({ action: "add", request: req });
+    }
+    setId((prev) => prev + count);
+  }
+
+  function fireComplete() {
+    const dispatches = [
+      {
+        title: "Assalto a Mão Armada",
+        code: "10-31",
+        tagText: "PRIORIDADE ALTA",
+        titleIcon: "gun",
+        priority: 1,
+        themeType: "police",
+        timeout: 30000,
+        acceptText: "Atender",
+        denyText: "Ignorar",
+        extras: [
+          { icon: "location-dot", name: "Local", value: "Banco Fleeca, Legion Square" },
+          { icon: "user", name: "Vítima", value: "Michael De Santa" },
+          { icon: "circle-info", name: "Detalhes", value: "2 suspeitos armados, fugindo a pé" },
+        ],
+        vehicle: { plate: "GTA·0517", model: "Bravado Banshee", color: "Preto Fosco", class: "Esportivo" },
+        units: [{ callsign: "LSPD-12" }, { callsign: "LSPD-08" }, { callsign: "AIR-1" }],
+      },
+      {
+        title: "Acidente de Trânsito com Vítimas",
+        code: "QTI",
+        tagText: "SAMU",
+        titleIcon: "truck-medical",
+        priority: 2,
+        themeType: "ambulancia",
+        timeout: 30000,
+        acceptText: "Responder",
+        denyText: "Recusar",
+        extras: [
+          { icon: "location-dot", name: "Local", value: "Rod. Del Perro, altura do pier" },
+          { icon: "user-injured", name: "Vítimas", value: "3 feridos, 1 grave" },
+        ],
+        vehicle: { plate: "AMB·2043", model: "Ambulance", color: "Branco", class: "Emergência" },
+        units: [{ callsign: "SAMU-04" }, { callsign: "SAMU-07" }],
+      },
+      {
+        title: "Incêndio Estrutural",
+        code: "10-70",
+        tagText: "BOMBEIROS",
+        titleIcon: "fire",
+        priority: 1,
+        themeType: "bombeiro",
+        timeout: 30000,
+        hideDeny: true,
+        acceptText: "A caminho",
+        extras: [
+          { icon: "location-dot", name: "Local", value: "Edifício comercial, Vinewood Blvd" },
+          { icon: "triangle-exclamation", name: "Risco", value: "Possível colapso, gás desligado" },
+          { icon: "phone", name: "Solicitante", value: "Trevor Philips" },
+        ],
+        units: [
+          { callsign: "CB-01" },
+          { callsign: "CB-03" },
+          { callsign: "CB-05" },
+          { callsign: "CB-09" },
+        ],
+      },
+    ];
+    dispatches.forEach((d, i) => {
+      sendMessage({ action: "add", request: { id: id + i, ...d } });
+    });
+    setId((prev) => prev + dispatches.length);
   }
 
   function removeRequest() {
-    sendMessage({ action: "remove", id });
+    sendMessage({ action: "remove", id: id - 1 });
   }
 
   function flashAccept() {
-    sendMessage({ action: "flashAccept", id });
+    sendMessage({ action: "flashAccept", id: id - 1 });
   }
 
   function flashDeny() {
-    sendMessage({ action: "flashDeny", id });
-  }
-
-  function prolongRequest() {
-    sendMessage({ action: "prolong", id, set: Number(timeout) });
+    sendMessage({ action: "flashDeny", id: id - 1 });
   }
 
   function init() {
@@ -60,110 +157,212 @@ const DevPanel: React.FC = () => {
     applyThemeType(themeType);
   };
 
+  const applyPreset = (type: "police" | "ems" | "fire") => {
+    const presets = {
+      police: { title: "Disparo de Alarme", tag: "POLICIA", theme: "police", code: "10-31" },
+      ems: { title: "Acidente de Trânsito", tag: "SAMU", theme: "ambulancia", code: "QTI" },
+      fire: {
+        title: "Incêndio Estrutural",
+        tag: "CORPO DE BOMBEIROS",
+        theme: "bombeiro",
+        code: "10-70",
+      },
+    };
+    const p = presets[type];
+    setTitle(p.title);
+    setTag(p.tag);
+    setThemeType(p.theme);
+    setCode(p.code);
+  };
+
   const applyCustomTheme = () => {
     try {
       const parsed = JSON.parse(themeInput);
-      sendMessage({ action: 'init', themes: { custom: parsed } });
-      setTimeout(() => applyThemeType('custom'), 100);
+      sendMessage({ action: "init", themes: { custom: parsed } });
+      setTimeout(() => applyThemeType("custom"), 100);
     } catch (e) {
-      // ignore parse errors
-      // eslint-disable-next-line no-console
-      console.error('Invalid theme JSON', e);
+      console.error("Invalid theme JSON", e);
     }
   };
 
-  const containerStyle: React.CSSProperties = {
-    position: 'fixed',
-    bottom: 16,
-    left: 16,
-    background: '#0f1724',
-    color: '#e6eef0',
-    padding: 12,
-    borderRadius: 8,
-    boxShadow: '0 8px 24px rgba(2,6,23,0.6)',
-    width: 320,
-    zIndex: 99999,
-    fontSize: 13,
-  };
-
-  const inputStyle: React.CSSProperties = { width: '100%', marginTop: 6, padding: 6, borderRadius: 6, background: '#0b1220', color: '#e6eef0', border: '1px solid rgba(255,255,255,0.04)' };
-  const btnStyle: React.CSSProperties = { padding: '6px 8px', borderRadius: 6, border: 'none', cursor: 'pointer' };
+  const selectClass =
+    "flex h-8 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-1 text-xs shadow-sm focus:outline-none focus:ring-1 focus:ring-ring";
+  const sectionLabel =
+    "flex items-center justify-between text-[10px] uppercase font-bold text-muted-foreground tracking-wider mb-1";
 
   return (
-    <div className="dev-panel" style={{ ...containerStyle, pointerEvents: 'auto' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <strong>Dev Test Panel</strong>
-        <div style={{ fontSize: 12, color: '#9aa4ad' }}>Dev only</div>
-      </div>
-      <div style={{ display: 'block', gap: 8 }}>
-        <div>
-          <label style={{ fontSize: 12, color: '#9aa4ad' }}>ID</label>
-          <input style={inputStyle} value={id} onChange={(e) => setId(Number(e.target.value))} />
-        </div>
-        <div>
-          <label style={{ fontSize: 12, color: '#9aa4ad' }}>Title</label>
-          <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} />
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 12, color: '#9aa4ad' }}>Tag</label>
-            <input style={inputStyle} value={tag} onChange={(e) => setTag(e.target.value)} />
+    <MriCard className="dev-panel fixed bottom-6 left-6 w-[360px] z-[99999] pointer-events-auto text-xs">
+      <MriCardHeader className="p-4 pb-3 border-b border-border">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+            <MriCardTitle className="text-sm font-bold tracking-wide">DEV CONTROLS</MriCardTitle>
           </div>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 12, color: '#9aa4ad' }}>Code</label>
-            <input style={inputStyle} value={code} onChange={(e) => setCode(e.target.value)} />
-          </div>
+          <span className="px-2 py-0.5 rounded bg-muted text-[10px] text-muted-foreground uppercase font-mono">
+            v0.3.0
+          </span>
         </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 12, color: '#9aa4ad' }}>Timeout ms</label>
-            <input style={inputStyle} value={timeout} onChange={(e) => setTimeoutVal(Number(e.target.value))} />
+      </MriCardHeader>
+      <MriCardContent className="grid gap-4 p-4">
+        {/* Presets */}
+        <div className="space-y-3">
+          <div className={sectionLabel}>
+            <span>Presets Rápidos</span>
           </div>
-          <div style={{ flex: 1 }}>
-            <label style={{ fontSize: 12, color: '#9aa4ad' }}>Sound</label>
-            <input style={inputStyle} value={sound} onChange={(e) => setSound(e.target.value)} />
+          <div className="grid grid-cols-3 gap-2">
+            <MriButton size="sm" variant="outline" className="h-7 text-[9px]" onClick={() => applyPreset("police")}>
+              POLICIA
+            </MriButton>
+            <MriButton size="sm" variant="outline" className="h-7 text-[9px]" onClick={() => applyPreset("ems")}>
+              SAMU
+            </MriButton>
+            <MriButton size="sm" variant="outline" className="h-7 text-[9px]" onClick={() => applyPreset("fire")}>
+              BOMBEIRO
+            </MriButton>
           </div>
-        </div>
-        <div style={{ marginTop: 8 }}>
-          <label style={{ fontSize: 12, color: '#9aa4ad' }}>Position</label>
-          <select style={{ width: '100%', marginTop: 6, padding: 6, borderRadius: 6, background: '#0b1220', color: '#e6eef0', border: '1px solid rgba(255,255,255,0.04)' }} value={position} onChange={(e) => setPosition(e.target.value as any)}>
-            <option value="top-right">Top Right</option>
-            <option value="top-left">Top Left</option>
-          </select>
-        </div>
-        
-        <div style={{ marginTop: 8 }}>
-          <label style={{ fontSize: 12, color: '#9aa4ad' }}>Theme Type</label>
-          <select style={{ width: '100%', marginTop: 6, padding: 6, borderRadius: 6, background: '#0b1220', color: '#e6eef0', border: '1px solid rgba(255,255,255,0.04)' }} value={themeType} onChange={(e) => setThemeType(e.target.value)}>
-            <option value="default">Default (Verde)</option>
-            <option value="ambulancia">Ambulância (Vermelho)</option>
-            <option value="police">Police (Azul)</option>
-            <option value="bombeiro">Bombeiro (Laranja)</option>
-            <option value="recrutamento">Recrutamento (Roxo)</option>
-          </select>
+
+          <div className={`${sectionLabel} pt-2`}>
+            <span>Request Data</span>
+          </div>
+          <div className="grid grid-cols-6 gap-2">
+            <div className="col-span-1">
+              <MriInput
+                aria-label="ID"
+                className="text-center"
+                placeholder="ID"
+                value={id}
+                onChange={(e) => setId(Number(e.target.value))}
+              />
+            </div>
+            <div className="col-span-5">
+              <MriInput
+                aria-label="Title"
+                placeholder="Request Title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <MriInput placeholder="Tag (e.g. #VIP)" value={tag} onChange={(e) => setTag(e.target.value)} />
+            <MriInput placeholder="Code (e.g. 10-20)" value={code} onChange={(e) => setCode(e.target.value)} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <MriInput
+              placeholder="Timeout (ms)"
+              value={timeout}
+              onChange={(e) => setTimeoutVal(Number(e.target.value))}
+            />
+            <MriInput placeholder="Sound File" value={sound} onChange={(e) => setSound(e.target.value)} />
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, paddingTop: 8 }}>
-          <button style={{ ...btnStyle, background: '#10b981', color: '#042018', flex: 1 }} onClick={addRequest}>Add</button>
-          <button style={{ ...btnStyle, background: '#f59e0b', color: '#111827', flex: 1 }} onClick={prolongRequest}>Prolong</button>
-        </div>
-        <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-          <button style={{ ...btnStyle, background: '#dc2626', color: '#fff', flex: 1 }} onClick={removeRequest}>Remove</button>
-          <button style={{ ...btnStyle, background: '#16a34a', color: '#fff', flex: 1 }} onClick={flashAccept}>Flash✓</button>
-          <button style={{ ...btnStyle, background: '#374151', color: '#fff', flex: 1 }} onClick={flashDeny}>Flash✕</button>
-        </div>
-        <div style={{ display: 'flex', gap: 8, paddingTop: 8 }}>
-          <button style={{ ...btnStyle, width: '100%', background: '#334155', color: '#fff', flex: 1 }} onClick={init}>Init</button>
-          <button style={{ ...btnStyle, width: '100%', background: '#8b5cf6', color: '#fff', flex: 1 }} onClick={changeTheme}>Apply Theme</button>
+        {/* Configuration */}
+        <div className="space-y-3">
+          <div className={sectionLabel}>
+            <span>Configuration</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              className={selectClass}
+              value={position}
+              onChange={(e) => setPosition(e.target.value as "top-right" | "top-left")}
+            >
+              <option value="top-right">↗ Top Right</option>
+              <option value="top-left">↖ Top Left</option>
+            </select>
+            <select className={selectClass} value={themeType} onChange={(e) => setThemeType(e.target.value)}>
+              <option value="default">Default (Green)</option>
+              <option value="ambulancia">Ambulance (Red)</option>
+              <option value="police">Police (Blue)</option>
+              <option value="bombeiro">Fire (Orange)</option>
+              <option value="recrutamento">Recruit (Purple)</option>
+            </select>
+          </div>
         </div>
 
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <label style={{ fontSize: 12, color: '#9aa4ad', fontWeight: 'bold' }}>Custom Theme (JSON)</label>
-          <textarea value={themeInput} onChange={(e) => setThemeInput(e.target.value)} style={{ width: '100%', height: 96, fontFamily: 'monospace', fontSize: 12, marginTop: 6, padding: 6, borderRadius: 6, background: '#0b1220', color: '#e6eef0', border: '1px solid rgba(255,255,255,0.04)' }} placeholder='{"card_bg": "rgba(0,0,0,0.8)", ...}' />
-          <button style={{ ...btnStyle, width: '100%', background: '#3b82f6', color: '#fff', marginTop: 6 }} onClick={applyCustomTheme}>Apply Custom Theme</button>
+        {/* Actions */}
+        <div className="space-y-3">
+          <div className={sectionLabel}>
+            <span>Actions</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <MriButton size="sm" onClick={addRequest}>
+              <i className="fa fa-plus" /> Send Request
+            </MriButton>
+            <MriButton size="sm" variant="secondary" onClick={() => fireMany(5)}>
+              <i className="fa fa-bolt" /> Fire Many (5)
+            </MriButton>
+          </div>
+          <MriButton size="sm" variant="outline" className="w-full" onClick={fireComplete}>
+            <i className="fa fa-layer-group" /> Cenário Completo (3 chamados)
+          </MriButton>
+          <div className="grid grid-cols-3 gap-2">
+            <MriButton size="sm" variant="default" onClick={flashAccept}>
+              ACEITAR
+            </MriButton>
+            <MriButton size="sm" variant="destructive" onClick={flashDeny}>
+              RECUSAR
+            </MriButton>
+            <MriButton size="sm" variant="destructive" onClick={removeRequest}>
+              <i className="fa fa-trash" />
+            </MriButton>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <MriButton size="sm" variant="outline" onClick={init}>
+              <i className="fa fa-refresh" /> Re-Init
+            </MriButton>
+            <MriButton size="sm" variant="outline" onClick={changeTheme}>
+              <i className="fa fa-paint-brush" /> Apply Theme
+            </MriButton>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <MriButton
+              size="sm"
+              variant="secondary"
+              onClick={() => sendMessage({ action: "openDispatch" })}
+            >
+              <i className="fa fa-list" /> Despacho (F2)
+            </MriButton>
+            <MriButton
+              size="sm"
+              variant="secondary"
+              onClick={() => sendMessage({ action: "openSettings" })}
+            >
+              <i className="fa fa-gear" /> Ajustes (F3)
+            </MriButton>
+          </div>
         </div>
-      </div>
-    </div>
+
+        {/* Custom JSON */}
+        <div className="pt-2 border-t border-border">
+          <div
+            className="flex items-center gap-2 mb-2 cursor-pointer"
+            onClick={() => {
+              const el = document.getElementById("json-area");
+              if (el) el.classList.toggle("hidden");
+            }}
+          >
+            <span className="text-[10px] uppercase font-bold text-muted-foreground hover:text-foreground transition-colors">
+              Advanced Theme JSON ▾
+            </span>
+          </div>
+          <div id="json-area" className="hidden space-y-2">
+            <MriTextarea
+              className="h-20 font-mono text-[10px] resize-none"
+              value={themeInput}
+              onChange={(e) => setThemeInput(e.target.value)}
+              placeholder='{"progress_color": "#22c55e", ...}'
+            />
+            <MriButton size="sm" variant="secondary" className="w-full h-7 text-[10px]" onClick={applyCustomTheme}>
+              Apply JSON
+            </MriButton>
+          </div>
+        </div>
+      </MriCardContent>
+    </MriCard>
   );
 };
 
