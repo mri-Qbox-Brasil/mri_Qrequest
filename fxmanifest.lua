@@ -7,10 +7,11 @@ description "Envia requests para outros jogadores."
 author "G5 Dev"
 version "1.0.0"
 
-ui_page "html/index.html"
+ui_page "web/build/index.html"
 
 shared_scripts {
     "@ox_lib/init.lua",
+    "shared/config.lua",
     "shared/**/*.lua"
 }
 
@@ -26,6 +27,14 @@ dependencies {
     "ox_lib",
 }
 
+-- Drop-in replacement for ps-dispatch: satisfies its dependency and
+-- routes exports['ps-dispatch']:* / the ps-dispatch:* events to us.
+provide "ps-dispatch"
+
 files {
-    "html/**/*"
+    "web/build/index.html",
+    "web/build/**/*",
+    "sounds/*.ogg",
+    "locales/*.json",
+    "data/*.json"
 }

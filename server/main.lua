@@ -1,3 +1,4 @@
+local resourceName = GetCurrentResourceName()
 local playerQueues = {}
 local pendingGroupRequests = {}
 
@@ -28,14 +29,14 @@ local function TryQueueRequest(target, requestData)
         ) then
             if requestData.prolong then
                 existing.timeout = requestData.timeout or 15000
-                TriggerClientEvent('g5-request:client:prolong', tid, existing.id, { set = existing.timeout })
+                TriggerClientEvent(resourceName..':client:prolong', tid, existing.id, { set = existing.timeout })
             end
             return { added = false, reason = 'duplicate', existing = existing }
         end
     end
 
     table.insert(q, requestData)
-    TriggerClientEvent('g5-request:client:add', tid, requestData)
+    TriggerClientEvent(resourceName..':client:add', tid, requestData)
     return { added = true }
 end
 
@@ -65,7 +66,7 @@ local function SendRequestAndWait(targets, requestData, timeoutMs, cb)
 
             local res = TryQueueRequest(tonumber(targetId), rd)
             if res.added then
-                TriggerEvent('g5-request:server:send', tonumber(targetId), rd)
+                TriggerEvent(resourceName..':server:send', tonumber(targetId), rd)
             else
                 -- NÃO marcar como "resultado recebido" aqui.
                 -- Em vez disso registre como pendingTarget para que não finalize a espera.
@@ -120,7 +121,7 @@ end
 
 exports('sendAndWait', SendRequestAndWait)
 
-RegisterNetEvent('g5-request:server:send', function(target, requestData)
+RegisterNetEvent(resourceName..':server:send', function(target, requestData)
     local src = source
     if not target or not requestData then return end
     requestData.id = requestData.id or (tostring(os.time()) .. tostring(math.random(1000,9999)))
@@ -131,9 +132,9 @@ RegisterNetEvent('g5-request:server:send', function(target, requestData)
     if not try.added then
         local origin = requestData.from or src
         if origin and tonumber(origin) and tonumber(origin) > 0 then
-            TriggerClientEvent('g5-request:server:duplicate_notify', tonumber(origin), tonumber(target), requestData, try.existing and try.existing.id or nil)
+            TriggerClientEvent(resourceName..':server:duplicate_notify', tonumber(origin), tonumber(target), requestData, try.existing and try.existing.id or nil)
         else
-            TriggerEvent('g5-request:server:send:duplicate', target, requestData, try.existing)
+            TriggerEvent(resourceName..':server:send:duplicate', target, requestData, try.existing)
         end
         return
     end
@@ -167,15 +168,18 @@ local function HandleClientAnswer(src, id, accepted)
     end
 
     if accepted then
-        TriggerClientEvent('g5-request:server:accepted_notify', request.from, src, request)
+        TriggerClientEvent(resourceName..':server:accepted_notify', request.from, src, request)
+
+        local unitData = { callsign = GetPlayerName(src) }
+        TriggerEvent(resourceName..':server:attachUnit', request.id, unitData)
     else
-        TriggerClientEvent('g5-request:server:denied_notify', request.from, src, request)
+        TriggerClientEvent(resourceName..':server:denied_notify', request.from, src, request)
     end
 
     return true
 end
 
-lib.callback.register('g5-request:answer', function(source, id, accepted)
+lib.callback.register(resourceName..':answer', function(source, id, accepted)
     local ok = HandleClientAnswer(source, id, accepted)
     return ok
 end)
@@ -185,7 +189,7 @@ AddEventHandler('playerDropped', function()
     playerQueues[src] = nil
 end)
 
-lib.callback.register('g5-request:sendAndWait', function(source, targets, requestData, timeoutMs)
+lib.callback.register(resourceName..':sendAndWait', function(source, targets, requestData, timeoutMs)
     requestData = requestData or {}
     return SendRequestAndWait(targets, requestData, timeoutMs)
 end)
@@ -203,7 +207,7 @@ local function CancelRequest(target, id, cancelledBy)
         end
     end
 
-    TriggerClientEvent('g5-request:client:remove', target, id)
+    TriggerClientEvent(resourceName..':client:remove', target, id)
 
     if removedRequest and removedRequest.groupId and pendingGroupRequests[removedRequest.groupId] then
         pendingGroupRequests[removedRequest.groupId].results[target] = {
@@ -235,7 +239,7 @@ local function CancelGroup(groupId, cancelledBy)
                     timedOut = false,
                     canceled = true
                 }
-                TriggerClientEvent('g5-request:client:remove', targetId, id)
+                TriggerClientEvent(resourceName..':client:remove', targetId, id)
             end
         end
     end
@@ -305,7 +309,7 @@ end
 
 exports('getGroupStatus', GetGroupStatus)
 
-RegisterNetEvent('g5-request:server:cancel', function(target, idOrGroup)
+RegisterNetEvent(resourceName..':server:cancel', function(target, idOrGroup)
     local src = source
     if type(target) == 'string' and target:match('^group:') then
         local groupId = target:sub(7)
@@ -371,7 +375,7 @@ lib.addCommand('sendtestrequest', {
         codeColor = '#FFF',
         sound = 'mixkit-interface-option-select-2573'
     }
-    TriggerEvent('g5-request:server:send', targetId, requestData)
+    TriggerEvent(resourceName..':server:send', targetId, requestData)
 end)
 
 lib.addCommand('sendgrouptest', {
@@ -416,14 +420,9 @@ lib.addCommand('sendgrouptest', {
 
     local results = SendRequestAndWait(targets, requestData, requestData.timeout)
 
-    print('[g5-request] Resultados do sendgrouptest:')
+    print(string.format('[%s] Resultados do sendgrouptest:', resourceName))
     for pid, res in pairs(results) do
-        print(('[g5-request] Player %s => answered=%s accepted=%s timedOut=%s'):format(
-            tostring(pid),
-            tostring(res.answered),
-            tostring(res.accepted),
-            tostring(res.timedOut)
-        ))
+        print((string.format('[%s] Player %s => answered=%s accepted=%s timedOut=%s', resourceName, tostring(pid), tostring(res.answered), tostring(res.accepted), tostring(res.timedOut))))
     end
 end)
 
@@ -445,9 +444,9 @@ lib.addCommand('cancelrequest', {
 
     local ok = CancelRequest(targetId, reqId, source)
     if ok then
-        print(('[g5-request] Request %s cancelado para player %s'):format(reqId, tostring(targetId)))
+        print((string.format('[%s] Request %s cancelado para player %s', resourceName, reqId, tostring(targetId))))
     else
-        print(('[g5-request] Request %s não encontrado para player %s'):format(reqId, tostring(targetId)))
+        print((string.format('[%s] Request %s não encontrado para player %s', resourceName, reqId, tostring(targetId))))
     end
 end)
 
@@ -542,7 +541,7 @@ lib.addCommand('testthemes', {
         }
     }
 
-    print('[g5-request] Enviando ' .. #themesTest .. ' requests de teste com temas para player ' .. tostring(targetId))
+    print(string.format('[%s] Enviando %d requests de teste com temas para player %s', resourceName, #themesTest, tostring(targetId)))
 
     -- Envia cada request com um delay entre eles
     CreateThread(function()
@@ -560,8 +559,8 @@ lib.addCommand('testthemes', {
                 sound = themeData.sound
             }
 
-            TriggerEvent('g5-request:server:send', targetId, requestData)
-            print('[g5-request] Enviado tema: ' .. themeData.name .. ' (' .. i .. '/' .. #themesTest .. ')')
+            TriggerEvent(resourceName..':server:send', targetId, requestData)
+            print(string.format('[%s] Enviado tema: %s (%d/%d)', resourceName, themeData.name, i, #themesTest))
 
             -- Delay de 1.5 segundos entre cada request para não sobrecarregar
             if i < #themesTest then
@@ -569,15 +568,15 @@ lib.addCommand('testthemes', {
             end
         end
 
-        print('[g5-request] Todos os temas foram enviados para player ' .. tostring(targetId))
+        print(string.format('[%s] Todos os temas foram enviados para player %s', resourceName, tostring(targetId)))
     end)
 end)
 
-lib.callback.register('g5-request:getRequestStatus', function(source, target, idOrMatcher)
+lib.callback.register(resourceName..':getRequestStatus', function(source, target, idOrMatcher)
     if type(target) == 'string' and tonumber(target) then target = tonumber(target) end
     return GetRequestStatus(target, idOrMatcher)
 end)
 
-lib.callback.register('g5-request:getGroupStatus', function(source, groupId)
+lib.callback.register(resourceName..':getGroupStatus', function(source, groupId)
     return GetGroupStatus(groupId)
 end)
